@@ -7,6 +7,9 @@ from functools import lru_cache
 
 @lru_cache(maxsize=1)
 def _load_secret() -> dict:
+    # Local mode: read everything from environment variables (.env via docker compose)
+    if os.environ.get("CONFIG_SOURCE", "env") == "env":
+        return dict(os.environ)
     region = os.environ.get("AWS_REGION", "us-east-1")
     client = boto3.client("secretsmanager", region_name=region)
     response = client.get_secret_value(SecretId="research-agent/config")

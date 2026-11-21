@@ -1,0 +1,7 @@
+URL	What
+http://localhost:8000	Research app UI
+http://localhost:8000/docs	FastAPI's interactive API docs, free: try every endpoint from the browser
+http://localhost:8001	PyRIT red-team dashboard
+http://localhost:5540	Redis (RedisInsight)
+http://localhost:8080	Postgres (Adminer)
+http://localhost:3000/health	TensorZero health check

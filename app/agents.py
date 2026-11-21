@@ -1,13 +1,12 @@
 import asyncio
 import httpx
-import logging
 from typing import TypedDict
 from langgraph.graph import StateGraph, END, START
 from langsmith import traceable
 from app.config import Config
 from app.retry import with_retry
 
-logger = logging.getLogger(__name__)
+from loguru import logger
 
 
 class ResearchState(TypedDict):

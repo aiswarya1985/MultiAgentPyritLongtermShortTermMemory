@@ -1,6 +1,5 @@
 import asyncio
 import uuid
-import logging
 import traceback
 from contextlib import asynccontextmanager
 from datetime import datetime
@@ -9,12 +8,10 @@ from fastapi.responses import Response, FileResponse
 from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel
 import redis.asyncio as aioredis
+from loguru import logger
+from utilities.logger import setup_logger
 
-logging.basicConfig(
-    level=logging.INFO,
-    format='{"time":"%(asctime)s","level":"%(levelname)s","logger":"%(name)s","message":"%(message)s"}',
-)
-logger = logging.getLogger(__name__)
+setup_logger(level="DEBUG", service="app")
 
 from app.config import Config
 from app.pool import init_pool, close_pool
@@ -26,6 +23,8 @@ from app.queue import push_job, get_result, set_result, ensure_group, consume_jo
 from app.agents import build_graph, ResearchState
 from app.output import generate_pdf, generate_json_report, get_report_diff
 from app.eval import evaluate_report, run_batch_evaluation, fetch_recent_topics
+from fastapi.responses import JSONResponse
+
 
 config = Config()
 redis_client: aioredis.Redis = None
@@ -47,41 +46,44 @@ async def _worker_loop():
     while True:
         try:
             jobs = await consume_jobs(redis_client, config)
+            logger.info(f"Retrieved {len(jobs)} jobs from stream")
             for job in jobs:
                 asyncio.create_task(_process_job(job["data"], job["msg_id"]))
         except Exception:
+            logger.exception("Worker loop failed while reading jobs")
             await asyncio.sleep(1)
 
 
+
 async def _process_job(data: dict, msg_id: str):
+    logger.info(f"Processing job with msg_id: {msg_id}")
     job_id = data["job_id"]
     topic = data["topic"]
     session_id = data["session_id"]
     output_format = data.get("output_format", "text")
-    log = logging.getLogger(f"job.{job_id[:8]}")
+    logger.info(f"Processing job {job_id} for topic: {topic}, session: {session_id}, format: {output_format}")
     try:
-        log.info(f"Starting job for topic: {topic}")
-
+       
         # Fetch session history before any branch — agent always receives it
         session_history = await session_get(redis_client, session_id)
 
         cached = await cache_get(redis_client, config, topic)
         if cached:
-            log.info("Cache hit")
+            logger.info("Cache hit")
             report_text = cached
             await ltm_store(config, topic, report_text, str(uuid.uuid4()))
         else:
             ltm_hit = await ltm_search(config, topic)
             if ltm_hit:
-                log.info("LTM hit")
+                logger.info("LTM hit")
                 report_text = ltm_hit["report"]
                 await ltm_store(config, topic, report_text, str(uuid.uuid4()))
             else:
-                log.info("Running multi-agent pipeline")
+                logger.info("Running multi-agent pipeline")
                 # Find a related (not identical) previous report for the writer to reference
                 ltm_context = await ltm_search_related(config, topic) or ""
                 if ltm_context:
-                    log.info("Found related LTM context for writer agent")
+                    logger.info("Found related LTM context for writer agent")
                 state = ResearchState(
                     topic=topic,
                     session_id=session_id,
@@ -118,9 +120,9 @@ async def _process_job(data: dict, msg_id: str):
             result["structured"] = generate_json_report(topic, report_text, job_id, datetime.utcnow())
 
         await set_result(redis_client, config, job_id, result)
-        log.info("Job completed successfully")
+        logger.info("Job completed successfully")
     except Exception as e:
-        log.error(f"Job failed: {traceback.format_exc()}")
+        logger.error(f"Job failed: {traceback.format_exc()}")
         await set_result(redis_client, config, job_id, {"status": "error", "error": str(e)})
     finally:
         await ack_job(redis_client, config, msg_id)
@@ -128,8 +130,15 @@ async def _process_job(data: dict, msg_id: str):
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
+    logger.info("Starting application lifespan")
     global redis_client, graph
-    redis_client = await aioredis.from_url(config.redis_url, decode_responses=True)
+    
+    redis_client = await aioredis.from_url(
+        config.redis_url,
+        decode_responses=True,
+        socket_timeout=15,   # must be longer than XREADGROUP block=5000 (5s)
+    )
+
     await init_pool(config)
     await db_migrate(config)
     graph = build_graph(config)
@@ -141,6 +150,12 @@ async def lifespan(app: FastAPI):
 
 
 app = FastAPI(title="Research Agent API", lifespan=lifespan)
+
+@app.exception_handler(Exception)
+async def log_unhandled(request: Request, exc: Exception):
+    logger.opt(exception=exc).error(f"Unhandled error on {request.method} {request.url.path}")
+    return JSONResponse(status_code=500, content={"detail": "Internal server error"})
+
 app.add_middleware(
     CORSMiddleware,
     allow_origins=["*"],

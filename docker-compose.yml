@@ -1,0 +1,51 @@
+services:
+  redis:
+    image: redis:7
+    ports: ["6379:6379"]
+
+  redisinsight:
+    image: redis/redisinsight:latest
+    ports: ["5540:5540"]
+    depends_on: [redis]
+
+  adminer:
+    image: adminer
+    ports: ["8080:8080"]
+    depends_on: [postgres]
+   
+
+  postgres:
+    image: pgvector/pgvector:pg15
+    environment:
+      POSTGRES_USER: postgres
+      POSTGRES_PASSWORD: postgres
+      POSTGRES_DB: research
+    ports: ["5432:5432"]
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U postgres"]
+      interval: 5s
+      retries: 10
+
+  tensorzero:
+    build: { context: ., dockerfile: tensorzero/Dockerfile }
+    env_file: .env
+    ports: ["3000:3000"]
+
+  app:
+    build: { context: ., dockerfile: app/Dockerfile }
+    env_file: .env
+    ports: ["8000:8000"]
+    depends_on:
+      redis: { condition: service_started }
+      postgres: { condition: service_healthy }
+      tensorzero: { condition: service_started }
+    volumes:
+      ["./logs:/app/logs"]
+
+  pyrit:
+    build: { context: ., dockerfile: pyrit_dashboard/Dockerfile }
+    environment:
+      TARGET_URL: http://app:8000
+      REDIS_URL: redis://redis:6379/1
+    ports: ["8001:8001"]
+    depends_on: [app]

@@ -2,7 +2,7 @@ import json
 import uuid
 import redis.asyncio as aioredis
 from app.config import Config
-
+from loguru import logger
 
 async def push_job(redis: aioredis.Redis, config: Config, topic: str, session_id: str, output_format: str) -> str:
     job_id = str(uuid.uuid4())
@@ -26,12 +26,14 @@ async def set_result(redis: aioredis.Redis, config: Config, job_id: str, result:
 
 async def ensure_group(redis: aioredis.Redis, config: Config) -> None:
     try:
+        logger.info("Ensuring consumer group exists")
         await redis.xgroup_create(config.stream_key, config.consumer_group, id="0", mkstream=True)
     except Exception:
         pass
 
 
 async def consume_jobs(redis: aioredis.Redis, config: Config) -> list[dict]:
+      
     messages = await redis.xreadgroup(
         config.consumer_group,
         config.consumer_name,
@@ -45,6 +47,8 @@ async def consume_jobs(redis: aioredis.Redis, config: Config) -> list[dict]:
     for _, entries in messages:
         for msg_id, data in entries:
             jobs.append({"msg_id": msg_id, "data": data})
+    logger.info("jobs: %s", jobs)         
+            
     return jobs
 
 

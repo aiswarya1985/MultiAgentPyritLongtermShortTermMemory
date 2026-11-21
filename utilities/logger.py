@@ -38,7 +38,7 @@ def setup_logger(level: str = "INFO",service: str = "app") -> None:
 
     # File: always DEBUG, so the full detail is saved even if the console is quieter
     logger.add(
-        LOG_DIR / f"logs_aigovernance_{service}.txt",
+        LOG_DIR / f"logs_multiagentltmstm_{service}.txt",
         format=FILE_LOG_FORMAT,
         level="DEBUG",
         colorize=False,

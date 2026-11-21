@@ -1,12 +1,11 @@
 import asyncio
 import re
 import httpx
-import logging
 from langsmith import Client, traceable
 from app.config import Config
 from app.retry import with_retry
 
-logger = logging.getLogger(__name__)
+from loguru import logger
 
 
 _ls_client: Client | None = None

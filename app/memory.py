@@ -7,6 +7,8 @@ from sentence_transformers import SentenceTransformer
 from app.config import Config
 from app.pool import get_pool
 
+from loguru import logger
+
 _model = SentenceTransformer("all-MiniLM-L6-v2")
 
 
@@ -19,6 +21,7 @@ async def session_add(redis: aioredis.Redis, config: Config, session_id: str, ro
 
 async def session_get(redis: aioredis.Redis, session_id: str) -> list[dict]:
     messages = await redis.lrange(f"session:{session_id}", 0, -1)
+    logger.info("session_get: %s", messages)
     return [json.loads(m) for m in messages]
 
 
@@ -36,7 +39,7 @@ async def db_migrate(config: Config) -> None:
             )
         """)
         await conn.execute(f"""
-            CREATE INDEX IF NOT EXISTS reports_embedding_idx
+            CREATE INDEX IF NOT EXISTS reprts_embedding_idx
             ON reports USING ivfflat (embedding vector_cosine_ops)
             WITH (lists = {config.ivfflat_lists})
         """)
